@@ -15,6 +15,7 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
@@ -24,6 +25,7 @@ import (
 
 var (
 	computeZone string
+	country     string
 )
 
 func main() {
@@ -36,6 +38,19 @@ func main() {
 		}
 		computeZone = zone
 		log.Printf("info: determined zone: %q", zone)
+	}
+
+	if computeZone == "" {
+		resp, err := http.Get("https://ifconfig.co/country-iso")
+		if err != nil {
+			log.Fatalf("failed to get ifconfig.co: %+v", err)
+		}
+		defer resp.Body.Close()
+		data, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatalf("failed to read data: %+v", err)
+		}
+		country = strings.TrimSpace(string(data))
 	}
 
 	log.Println("starting to listen on port 80")
@@ -54,9 +69,21 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	log.Printf("received request method=%s path=%q src=%q", r.Method, r.URL.Path, srcIP)
 
 	if computeZone == "" {
+		var maybeFlag string
+		if country != "" {
+			if flag, hasFlag := countryFlags[country]; hasFlag {
+				maybeFlag = fmt.Sprintf(`<img src="%s" style="width: 640px; height: auto; border: 1px solid black"/>`, flag)
+			}
+			fmt.Fprintf(w, `<!DOCTYPE html>
+			<h1>Cannot determine the cloud compute zone</h1>
+			<p>Is it running on a Google Compute Engine instance? At least I know I'm running in %s.</p>
+			%s`, country, maybeFlag)
+			return
+		}
 		fmt.Fprintf(w, `<!DOCTYPE html>
 				<h1>Cannot determine the compute zone :(</h1>
-				<p>Is it running on a Google Compute Engine instance?</p>`)
+				<p>Is it running on a Google Compute Engine instance?</p>
+				%s`, maybeFlag)
 		return
 	}
 
@@ -73,6 +100,20 @@ func handle(w http.ResponseWriter, r *http.Request) {
 		<h1>%s</h1>
 		<h3>You are now connected to &quot;%s&quot;</h3>
 		<img src="%s" style="width: 640px; height: auto; border: 1px solid black"/>`, dc.location, computeZone, dc.flagURL)
+}
+
+var countryFlags = map[string]string{
+	"CA": "https://upload.wikimedia.org/wikipedia/commons/d/d9/Flag_of_Canada_%28Pantone%29.svg",
+	"US": "https://upload.wikimedia.org/wikipedia/en/a/a4/Flag_of_the_United_States.svg",
+	"BR": "https://upload.wikimedia.org/wikipedia/en/0/05/Flag_of_Brazil.svg",
+	"BE": "https://upload.wikimedia.org/wikipedia/commons/6/65/Flag_of_Belgium.svg",
+	"UK": "https://upload.wikimedia.org/wikipedia/en/a/ae/Flag_of_the_United_Kingdom.svg",
+	"DE": "https://upload.wikimedia.org/wikipedia/en/b/ba/Flag_of_Germany.svg",
+	"NL": "https://upload.wikimedia.org/wikipedia/commons/2/20/Flag_of_the_Netherlands.svg",
+	"IN": "https://upload.wikimedia.org/wikipedia/en/4/41/Flag_of_India.svg",
+	"CN": "https://upload.wikimedia.org/wikipedia/commons/7/72/Flag_of_the_Republic_of_China.svg",
+	"JP": "https://upload.wikimedia.org/wikipedia/en/9/9e/Flag_of_Japan.svg",
+	"AU": "https://upload.wikimedia.org/wikipedia/en/b/b9/Flag_of_Australia.svg",
 }
 
 var (
